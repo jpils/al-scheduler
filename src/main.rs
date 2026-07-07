@@ -22,6 +22,7 @@ struct ProjectConfig {
 #[derive(Debug, Deserialize)]
 struct TrainingConfig {
     backend: Backend,
+    energy_mode: EnergyMode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -29,6 +30,13 @@ struct TrainingConfig {
 enum Backend {
     Upet,
     N2p2,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum EnergyMode {
+    Pet,
+    Raw,
 }
 
 mod watcher;
@@ -180,10 +188,16 @@ fn main() {
                     Backend::N2p2 => python_dir.join("poscar_to_n2p2.py"),
                 };
 
+                let energy_mode = match config.training.energy_mode {
+                    EnergyMode::Pet => "pet",
+                    EnergyMode::Raw => "raw",
+                };
+
                 let convert_status = std::process::Command::new("python3")
                     .arg(&python_script_path) // Use the resolved absolute path here
                     .arg(gen_num.to_string())
-                    .arg(&checkpoint_file) 
+                    .arg(&checkpoint_file)
+                    .arg(energy_mode) 
                     .status();
 
                 match convert_status {
