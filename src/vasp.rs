@@ -1,17 +1,19 @@
 use std::fs::{create_dir_all, File};
 use std::io::{self, Error, ErrorKind, Write};
 use std::path::Path;
-use std::process::Command;
+use crate::paths::{pixi_python, scheduler_home};
 
 pub struct VaspWorkspace;
 
 impl VaspWorkspace {
     pub fn get_configuration_count(xyz_path: &Path) -> io::Result<usize> {
-        let script_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
+        let script_path = scheduler_home()
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
+            .join("python")
             .join("xyz_to_poscar.py");
 
-        let output = Command::new("python3")
+        let output = pixi_python("upet")
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
             .arg(&script_path)
             .arg("count")
             .arg(xyz_path)
@@ -39,30 +41,46 @@ impl VaspWorkspace {
         let run_dir = output_base_dir.join(run_name);
         create_dir_all(&run_dir)?;
 
-        let script_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
+        // POSCAR destination
+        let poscar_path = run_dir.join("POSCAR");
+
+        // Python extraction script
+        let script_path = scheduler_home()
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
+            .join("python")
             .join("xyz_to_poscar.py");
 
-        let output = Command::new("python3")
+        // Extract the requested configuration into the POSCAR
+        let status = pixi_python("upet")
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
             .arg(&script_path)
-            .arg("convert")
+            .arg("extract")
             .arg(xyz_path)
-            .arg(run_dir.join("POSCAR"))
             .arg(config_index.to_string())
-            .output()?;
+            .arg(&poscar_path)
+            .status()?;
 
-        if !output.status.success() {
-            return Err(Error::new(ErrorKind::Other, String::from_utf8_lossy(&output.stderr).trim()));
+        if !status.success() {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "xyz_to_poscar.py failed while extracting the POSCAR.",
+            ));
         }
 
+        // Copy the standard VASP input files
         let vasp_inputs = ["POTCAR", "INCAR", "KPOINTS"];
+
         for file_name in &vasp_inputs {
             let source = setup_dir.join(file_name);
             let target = run_dir.join(file_name);
+
             if source.exists() {
                 std::fs::copy(&source, &target)?;
             } else {
-                return Err(Error::new(ErrorKind::NotFound, format!("Blueprint missing: {}", file_name)));
+                return Err(Error::new(
+                    ErrorKind::NotFound,
+                    format!("Blueprint missing: {}", file_name),
+                ));
             }
         }
 

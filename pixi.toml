@@ -5,10 +5,19 @@ name = "ai_scheduler"
 platforms = ["linux-64"]
 version = "0.1.0"
 
-[tasks]
+[feature.common.dependencies]
+python = ">=3.14,<3.15"
+numpy = "*"
 
-[dependencies]
-python = ">=3.14.6,<3.15"
+[feature.common.pypi-dependencies]
+ase = "*"
 
-[pypi-dependencies]
-upet = ">=0.2.6, <0.3"
+[feature.upet.pypi-dependencies]
+upet = ">=0.2.6,<0.3"
+
+# We'll fill this in once we know exactly how we're using n2p2.
+[feature.n2p2.pypi-dependencies]
+
+[environments]
+upet = ["common", "upet"]
+n2p2 = ["common", "n2p2"]

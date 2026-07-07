@@ -1,12 +1,15 @@
 mod lammps;
 mod vasp;
+mod watcher;
+mod paths;
 
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use lammps::LammpsManager;
 use vasp::VaspWorkspace;
 use serde::Deserialize;
+use paths::{pixi_python, scheduler_home};
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -39,7 +42,6 @@ enum EnergyMode {
     Raw,
 }
 
-mod watcher;
 
 fn main() {
     let current_working_dir =
@@ -181,34 +183,62 @@ fn main() {
                 // ==========================================================
                 println!(" 🔄 Invoking automated extraction and dataset formatting step...");
 
-                let python_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+                let scheduler_dir = match scheduler_home() {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        eprintln!("❌ {}", e);
+                        return;
+                    }
+                };
+
+                let python_dir = scheduler_dir.join("python");
 
                 let python_script_path = match config.training.backend {
                     Backend::Upet => python_dir.join("poscar_to_upet.py"),
                     Backend::N2p2 => python_dir.join("poscar_to_n2p2.py"),
                 };
 
+                let pixi_env = match config.training.backend {
+                    Backend::Upet => "upet",
+                    Backend::N2p2 => "n2p2",
+                };
+               
+
                 let energy_mode = match config.training.energy_mode {
                     EnergyMode::Pet => "pet",
                     EnergyMode::Raw => "raw",
                 };
 
-                let convert_status = std::process::Command::new("python3")
-                    .arg(&python_script_path) // Use the resolved absolute path here
-                    .arg(gen_num.to_string())
-                    .arg(&checkpoint_file)
-                    .arg(energy_mode) 
-                    .status();
+                let convert_status = pixi_python(pixi_env)
+                    .and_then(|mut cmd| {
+                        Ok(cmd.arg(&python_script_path)
+                            .arg(gen_num.to_string())
+                            .arg(&checkpoint_file)
+                            .arg(energy_mode)
+                            .status())
+                    });
 
                 match convert_status {
-                    Ok(status) if status.success() => {
-                        println!("   ✓ Generation {} completely compiled and split successfully.", gen_num);
+                    Ok(Ok(status)) => {
+                        if status.success() {
+                            println!(
+                                " ✓ Generation {} completely compiled and split successfully.",
+                                gen_num
+                            );
+                        } else {
+                            eprintln!(
+                                "   ⚠️ Python pipeline returned non-zero exit status: {}",
+                                status
+                            );
+                        }
                     }
-                    Ok(status) => {
-                        eprintln!("   ⚠️ Python pipeline returned non-zero exit status: {}", status);
-                    }
-                    Err(e) => {
+
+                    Ok(Err(e)) => {
                         eprintln!("   ❌ Failed to spawn companion extraction engine: {}", e);
+                    }
+
+                    Err(e) => {
+                        eprintln!("   ❌ Failed to configure Pixi: {}", e);
                     }
                 }
             }
@@ -218,4 +248,4 @@ fn main() {
             }
         }
     }
-}}
+}
