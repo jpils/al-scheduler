@@ -3,8 +3,9 @@ import sys
 from dataset import (
     EnergyMode,
     prepare_dataset,
-    export_extxyz,
 )
+
+from formats import export_extxyz
 
 
 def main():
@@ -42,7 +43,7 @@ def main():
         f"{checkpoint}"
     )
 
-    train_set, val_set, test_set = prepare_dataset(
+    train_set, validation_set, test_set = prepare_dataset(
         project_dir,
         generation,
         checkpoint,
@@ -53,7 +54,7 @@ def main():
         project_dir,
         generation,
         train_set,
-        val_set,
+        validation_set,
         test_set,
     )
 

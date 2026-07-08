@@ -181,14 +181,14 @@ def split_dataset(dataset):
 
     n = len(dataset)
 
-    n_val = int(0.1 * n)
+    n_validation = int(0.1 * n)
     n_test = int(0.1 * n)
-    n_train = n - n_val - n_test
+    n_train = n - n_validation - n_test
 
     if n_train <= 0:
 
         n_train = n
-        n_val = 0
+        n_validation = 0
         n_test = 0
 
     train = [
@@ -196,22 +196,22 @@ def split_dataset(dataset):
         for i in indices[:n_train]
     ]
 
-    val = [
+    validation = [
         dataset[i]
         for i in indices[
             n_train:
-            n_train + n_val
+            n_train + n_validation
         ]
     ]
 
     test = [
         dataset[i]
         for i in indices[
-            n_train + n_val:
+            n_train + n_validation:
         ]
     ]
 
-    return train, val, test
+    return train, validation, test
 
 
 def prepare_dataset(
@@ -224,7 +224,7 @@ def prepare_dataset(
     Complete shared workflow.
 
     Returns:
-        train_set, val_set, test_set
+        train_set, validation_set, test_set
     """
 
     dataset = load_generation(
@@ -242,62 +242,3 @@ def prepare_dataset(
         print("    -> Using raw DFT energies (no energy correction).")
 
     return split_dataset(dataset)
-
-def export_extxyz(
-    project_dir,
-    generation_num,
-    train_set,
-    val_set,
-    test_set,
-):
-    """
-    Write UPET extxyz datasets.
-    """
-
-    target_dir = os.path.join(
-        project_dir,
-        "training",
-        "training_set",
-        f"generation_{generation_num}",
-    )
-
-    os.makedirs(
-        target_dir,
-        exist_ok=True,
-    )
-
-    ase.io.write(
-        os.path.join(target_dir, "train.xyz"),
-        train_set,
-        format="extxyz",
-    )
-
-    if val_set:
-        ase.io.write(
-            os.path.join(target_dir, "val.xyz"),
-            val_set,
-            format="extxyz",
-        )
-
-    if test_set:
-        ase.io.write(
-            os.path.join(target_dir, "test.xyz"),
-            test_set,
-            format="extxyz",
-        )
-
-    print(
-        f"[+] Dataset exported successfully: {target_dir}/"
-    )
-
-    print(
-        f"    - train.xyz : {len(train_set)} frames"
-    )
-
-    print(
-        f"    - val.xyz   : {len(val_set)} frames"
-    )
-
-    print(
-        f"    - test.xyz  : {len(test_set)} frames"
-    )
