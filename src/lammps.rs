@@ -4,6 +4,11 @@ use std::path::{Path, PathBuf};
 
 pub struct LammpsManager;
 
+pub enum MdModelPackage {
+    UpetMock,
+    N2p2Inputs,
+}
+
 impl LammpsManager {
     /// Find the LAMMPS input file for a generation.
     ///
@@ -76,7 +81,7 @@ impl LammpsManager {
         setup_dir: &Path,
         gen_num: u32,
         committee_members: usize,
-        copy_upet_models: bool,
+        model_package: Option<MdModelPackage>,
     ) -> Result<PathBuf, String> {
         if committee_members == 0 {
             return Err("The committee must contain at least one member.".to_string());
@@ -144,24 +149,60 @@ impl LammpsManager {
                 )
             })?;
 
-            if copy_upet_models {
-                let mock_model = model_dir.join("mock_trained_model.pt");
+            match model_package {
+                Some(MdModelPackage::UpetMock) => {
+                    let mock_model = model_dir.join("mock_trained_model.pt");
 
-                if !mock_model.is_file() {
-                    return Err(format!(
-                        "Required mock UPET model is missing: {}",
-                        mock_model.display()
-                    ));
+                    if !mock_model.is_file() {
+                        return Err(format!(
+                            "Required mock UPET model is missing: {}",
+                            mock_model.display()
+                        ));
+                    }
+
+                    fs::copy(&mock_model, run_dir.join("mock_trained_model.pt")).map_err(|e| {
+                        format!(
+                            "Failed to copy {} into {}: {}",
+                            mock_model.display(),
+                            run_dir.display(),
+                            e
+                        )
+                    })?;
                 }
 
-                fs::copy(&mock_model, run_dir.join("mock_trained_model.pt")).map_err(|e| {
-                    format!(
-                        "Failed to copy {} into {}: {}",
-                        mock_model.display(),
-                        run_dir.display(),
-                        e
-                    )
-                })?;
+                Some(MdModelPackage::N2p2Inputs) => {
+                    let n2p2_dir = run_dir.join("n2p2");
+
+                    fs::create_dir_all(&n2p2_dir).map_err(|e| {
+                        format!(
+                            "Failed to create n2p2 MD package directory {}: {}",
+                            n2p2_dir.display(),
+                            e
+                        )
+                    })?;
+
+                    for file_name in ["input.data", "input.nn"] {
+                        let source = model_dir.join(file_name);
+
+                        if !source.is_file() {
+                            return Err(format!(
+                                "Required n2p2 MD package file is missing: {}",
+                                source.display()
+                            ));
+                        }
+
+                        fs::copy(&source, n2p2_dir.join(file_name)).map_err(|e| {
+                            format!(
+                                "Failed to copy {} into {}: {}",
+                                source.display(),
+                                n2p2_dir.display(),
+                                e
+                            )
+                        })?;
+                    }
+                }
+
+                None => {}
             }
 
             // Record the committee member assigned as the MD driver.

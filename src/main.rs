@@ -6,7 +6,7 @@ mod training;
 mod vasp;
 mod watcher;
 
-use lammps::LammpsManager;
+use lammps::{LammpsManager, MdModelPackage};
 use paths::{pixi_python, scheduler_home};
 use serde::Deserialize;
 use std::fs;
@@ -196,6 +196,26 @@ fn main() {
         }
     }
 
+    if matches!(config.training.backend, Backend::N2p2) {
+        let required_n2p2_files = [
+            setup_dir.join("training").join("input.nn"),
+            setup_dir
+                .join("jobscripts")
+                .join("n2p2_scaling_array.sh.template"),
+            setup_dir
+                .join("jobscripts")
+                .join("n2p2_training_array.sh.template"),
+        ];
+
+        for path in required_n2p2_files {
+            if !path.is_file() {
+                eprintln!("❌ PRE-FLIGHT VALIDATION FAILED!");
+                eprintln!("Missing n2p2 setup file: {}", path.display());
+                return;
+            }
+        }
+    }
+
     // ==========================================================
     // 🔍 PRE-FLIGHT ASSET VALIDATION LOOP
     // ==========================================================
@@ -331,49 +351,77 @@ fn main() {
             }
         }
 
-        if matches!(config.training.backend, Backend::Upet) {
-            let checkpoint = match checkpoint_file.as_deref() {
-                Some(path) => path,
+        match config.training.backend {
+            Backend::Upet => {
+                let checkpoint = match checkpoint_file.as_deref() {
+                    Some(path) => path,
 
-                None => {
-                    eprintln!(" ❌ UPET training requires a checkpoint.");
-                    return;
-                }
-            };
-
-            println!(" 🧠 Preparing UPET committee training workspace...");
-
-            match TrainingWorkspace::create_upet_workspace(
-                &project_dir,
-                &setup_dir,
-                gen_num,
-                config.committee.members,
-                checkpoint,
-                config.training.energy_mode.training_key(),
-            ) {
-                Ok(training_script) => {
-                    println!(" 🚀 [Dry-Run] sbatch {:?}", training_script);
-
-                    if let Err(error) = TrainingWorkspace::create_mock_upet_models(
-                        &project_dir,
-                        gen_num,
-                        config.committee.members,
-                    ) {
-                        eprintln!(" ❌ Failed to create mock UPET models: {}", error);
+                    None => {
+                        eprintln!(" ❌ UPET training requires a checkpoint.");
                         return;
                     }
+                };
 
-                    println!(" ✓ Created mock UPET trained models.");
+                println!(" 🧠 Preparing UPET committee training workspace...");
 
-                    println!(
-                        " ✓ Prepared {} UPET training jobs for Generation {}.",
-                        config.committee.members, gen_num
-                    );
+                match TrainingWorkspace::create_upet_workspace(
+                    &project_dir,
+                    &setup_dir,
+                    gen_num,
+                    config.committee.members,
+                    checkpoint,
+                    config.training.energy_mode.training_key(),
+                ) {
+                    Ok(training_script) => {
+                        println!(" 🚀 [Dry-Run] sbatch {:?}", training_script);
+
+                        if let Err(error) = TrainingWorkspace::create_mock_upet_models(
+                            &project_dir,
+                            gen_num,
+                            config.committee.members,
+                        ) {
+                            eprintln!(" ❌ Failed to create mock UPET models: {}", error);
+                            return;
+                        }
+
+                        println!(" ✓ Created mock UPET trained models.");
+
+                        println!(
+                            " ✓ Prepared {} UPET training jobs for Generation {}.",
+                            config.committee.members, gen_num
+                        );
+                    }
+
+                    Err(error) => {
+                        eprintln!(" ❌ Failed to prepare UPET training workspace: {}", error);
+                        return;
+                    }
                 }
+            }
 
-                Err(error) => {
-                    eprintln!(" ❌ Failed to prepare UPET training workspace: {}", error);
-                    return;
+            Backend::N2p2 => {
+                println!(" 🧠 Preparing n2p2 committee training workspace...");
+
+                match TrainingWorkspace::create_n2p2_workspace(
+                    &project_dir,
+                    &setup_dir,
+                    gen_num,
+                    config.committee.members,
+                ) {
+                    Ok((scaling_script, training_script)) => {
+                        println!(" 🚀 [Dry-Run] sbatch {:?}", scaling_script);
+                        println!(" 🚀 [Dry-Run] sbatch {:?}", training_script);
+
+                        println!(
+                            " ✓ Prepared {} n2p2 scaling/training workspaces for Generation {}.",
+                            config.committee.members, gen_num
+                        );
+                    }
+
+                    Err(error) => {
+                        eprintln!(" ❌ Failed to prepare n2p2 training workspace: {}", error);
+                        return;
+                    }
                 }
             }
         }
@@ -388,7 +436,10 @@ fn main() {
             &setup_dir,
             gen_num,
             config.committee.members,
-            matches!(config.training.backend, Backend::Upet),
+            match config.training.backend {
+                Backend::Upet => Some(MdModelPackage::UpetMock),
+                Backend::N2p2 => Some(MdModelPackage::N2p2Inputs),
+            },
         ) {
             Ok(path) => path,
             Err(e) => {
